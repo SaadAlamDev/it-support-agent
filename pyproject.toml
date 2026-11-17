@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "it-support-agent"
+version = "0.1.0"
+description = "A local-first IT support agent with durable, human-approved ticket operations"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "langgraph>=1.0,<2",
+  "langgraph-checkpoint-sqlite>=3.0.1,<4",
+  "langchain-core>=1.2.22,<2",
+  "httpx>=0.28,<1",
+  "pydantic-settings>=2.7,<3",
+  "python-dotenv>=1.0,<2",
+  "zstandard>=0.25,<1",
+  "streamlit>=1.45,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-cov>=6,<8", "ruff>=0.11,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["support_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

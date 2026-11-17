@@ -1,0 +1,172 @@
+"""Deterministic demo fixtures. No live systems or private employee data."""
+
+SERVICES = [
+    (
+        "vpn",
+        "degraded",
+        "SIM-VPN-104",
+        "Intermittent VPN tunnel drops in the simulated EU gateway. Reconnecting may restore access; engineering is investigating.",
+    ),
+    ("wifi", "operational", None, "Simulated corporate Wi-Fi is healthy across all mock offices."),
+    ("email", "operational", None, "Simulated mail delivery and webmail are healthy."),
+    ("dns", "operational", None, "Simulated internal DNS resolvers are responding normally."),
+    ("account", "operational", None, "Simulated identity provider and MFA service are healthy."),
+    (
+        "application",
+        "degraded",
+        "SIM-APP-207",
+        "Simulated ExpenseHub is returning intermittent HTTP 503 errors; other applications are healthy.",
+    ),
+]
+
+ARTICLES = [
+    (
+        "VPN disconnects after connecting",
+        "vpn",
+        "disconnect tunnel gateway timeout",
+        [
+            "Save ongoing work and record the exact disconnect time and error.",
+            "Check the simulated VPN service status for a matching incident.",
+            "Confirm the internet connection works with VPN disconnected.",
+            "Reconnect once and test an approved internal application.",
+            "If drops persist, collect the VPN client version and escalate; do not disable endpoint protection.",
+        ],
+        "Repeated drops or multiple affected employees.",
+    ),
+    (
+        "VPN authentication or certificate error",
+        "vpn",
+        "authentication certificate login mfa",
+        [
+            "Confirm device date and time are correct.",
+            "Verify the corporate account can sign in through the approved portal.",
+            "Approve only MFA prompts you initiated; never share passwords or codes.",
+            "Record the client error code and ask IT to check certificate enrollment.",
+        ],
+        "Expired device certificate or continued authentication failure.",
+    ),
+    (
+        "Corporate Wi-Fi connects without internet",
+        "wifi",
+        "wireless internet disconnected dhcp",
+        [
+            "Confirm the corporate SSID and whether other devices are affected.",
+            "Toggle Wi-Fi off and on once, then reconnect to the approved SSID.",
+            "Check for a captive portal using the company-approved connectivity page.",
+            "Record the assigned IP address and location for IT; avoid sharing device identifiers publicly.",
+        ],
+        "Multiple devices affected or no IP address assigned.",
+    ),
+    (
+        "Weak Wi-Fi signal or roaming drops",
+        "wifi",
+        "signal slow roaming intermittent",
+        [
+            "Move closer to a known corporate access point.",
+            "Test from a second permitted location and record the difference.",
+            "Disconnect unused personal hotspots that may interfere.",
+            "Give IT the office floor, approximate time, and wireless adapter model.",
+        ],
+        "Persistent drops across several locations.",
+    ),
+    (
+        "Email not syncing in desktop client",
+        "email",
+        "outlook sync mail inbox offline",
+        [
+            "Check simulated email service health.",
+            "Compare webmail with the desktop client to isolate the issue.",
+            "Confirm the client is online and has available storage.",
+            "Restart the mail application once and record any sign-in error.",
+            "Do not delete the mail profile or local archive without IT guidance.",
+        ],
+        "Webmail also fails or messages remain missing.",
+    ),
+    (
+        "Delayed email or suspicious message",
+        "email",
+        "delivery delayed phishing message attachment",
+        [
+            "Check service status and message timestamps.",
+            "Review the junk folder and existing mail rules.",
+            "For a suspicious message, use the approved report-phishing control.",
+            "Do not open unexpected attachments or disclose credentials.",
+            "Provide IT with the message ID through the approved support channel.",
+        ],
+        "Suspected phishing or broad delivery delays.",
+    ),
+    (
+        "Internal hostname does not resolve",
+        "dns",
+        "resolve hostname nxdomain intranet name",
+        [
+            "Confirm whether the hostname is internal and the VPN is connected if required.",
+            "Check the exact spelling against a company bookmark.",
+            "Compare one approved public site with the internal site.",
+            "Record the browser error and configured DNS resolver for IT.",
+            "Do not switch a managed device to a public DNS resolver.",
+        ],
+        "Several internal names fail or a resolver outage is suspected.",
+    ),
+    (
+        "DNS works for some applications only",
+        "dns",
+        "cache stale browser lookup resolution",
+        [
+            "Compare the same internal URL in a second approved browser.",
+            "Restart the affected application to clear its connection cache.",
+            "Check whether the problem occurs on VPN and corporate Wi-Fi.",
+            "Ask IT to validate the internal DNS record before changing device configuration.",
+        ],
+        "Different employees receive inconsistent resolution results.",
+    ),
+    (
+        "Account locked or MFA unavailable",
+        "account",
+        "locked lockout password mfa access login",
+        [
+            "Stop repeated sign-in attempts to avoid extending the lockout.",
+            "Use only the official self-service account recovery portal.",
+            "If MFA is unavailable, contact IT through an established identity-verification channel.",
+            "Never send passwords, recovery codes, or MFA codes to the assistant.",
+        ],
+        "Identity verification or privileged account recovery required.",
+    ),
+    (
+        "Access denied after a team change",
+        "account",
+        "permissions denied group role access",
+        [
+            "Record the application name and exact access-denied message.",
+            "Confirm the correct corporate account is active.",
+            "Sign out and back in once to refresh access claims.",
+            "Ask the resource owner to approve the required role through the access process.",
+        ],
+        "A group or role change needs an authorized owner.",
+    ),
+    (
+        "ExpenseHub intermittent HTTP 503",
+        "application",
+        "expensehub 503 unavailable connectivity",
+        [
+            "Check the simulated application incident status.",
+            "Save form content before retrying.",
+            "Retry once after a short pause; avoid duplicate expense submissions.",
+            "Record the timestamp, application URL without sensitive query parameters, and error code.",
+        ],
+        "Incident persists or a submission may have duplicated.",
+    ),
+    (
+        "Internal application times out",
+        "application",
+        "timeout connection browser intranet proxy",
+        [
+            "Confirm internet access, then required VPN connectivity.",
+            "Check the simulated application and DNS status.",
+            "Test the same approved URL in another corporate browser.",
+            "Record the error and whether colleagues are affected.",
+            "Do not bypass the corporate proxy or disable TLS verification.",
+        ],
+        "Timeouts persist after basic connectivity checks.",
+    ),
+]

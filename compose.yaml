@@ -1,0 +1,43 @@
+services:
+  ollama:
+    image: ollama/ollama:0.13.5
+    volumes:
+      - ollama-data:/root/.ollama
+    # Model downloads are explicit; see the pull command in README.
+    restart: unless-stopped
+  backend:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      DATABASE_PATH: /app/data/support.db
+      CHECKPOINT_PATH: /app/data/checkpoints.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - support-data:/app/data
+    depends_on:
+      - ollama
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+  frontend:
+    build: .
+    command: ["streamlit", "run", "frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    environment:
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  support-data:
+  ollama-data:
