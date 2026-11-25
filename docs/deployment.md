@@ -244,6 +244,8 @@ Changing the database paths initializes a fresh demo unless you deliberately mig
 
 ## Troubleshooting
 
+For the “Cannot reach the model server. Start Ollama…” notice in a Groq deployment, follow the [provider-specific diagnostic guide](groq-diagnostics.md). The old wording is shared across providers and does not establish which provider ran.
+
 | Symptom | Check |
 | --- | --- |
 | Backend fails validation | Set both private keys, APP_MODE=cloud, STORAGE_MODE explicitly, hosted HTTPS URL, timeout <=60. Do not paste the error's environment values publicly. |

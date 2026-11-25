@@ -4,8 +4,13 @@ Both receive the same JSON tool schemas; the model chooses which tools to use.
 No local text classifier, canned answer fallback, or automatic side effects.
 """
 
+import errno
 import json
+import logging
+import socket
+import ssl
 from typing import Protocol
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -13,6 +18,36 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from support_agent.config import Settings
 from support_agent.tools import tool_definitions
+
+logger = logging.getLogger("support_agent")
+
+
+def transport_failure_reason(exc):
+    """Classify typed causes without logging exception text, URLs, or headers."""
+    cause = exc
+    for _ in range(8):
+        if isinstance(cause, ssl.SSLCertVerificationError):
+            return "tls_certificate_error"
+        if isinstance(cause, ssl.SSLError):
+            return "tls_error"
+        if isinstance(cause, socket.gaierror):
+            return "dns_error"
+        if isinstance(cause, ConnectionRefusedError):
+            return "connection_refused"
+        if isinstance(cause, OSError) and cause.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH):
+            return "network_unreachable"
+        cause = cause.__cause__ or cause.__context__
+        if cause is None:
+            break
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.ProxyError):
+        return "proxy_error"
+    if isinstance(exc, httpx.ProtocolError):
+        return "protocol_error"
+    if isinstance(exc, httpx.ConnectError):
+        return "connection_error"
+    return "transport_error"
 
 
 class ModelError(Exception):
@@ -34,6 +69,44 @@ class HTTPChatModel:
             transport=transport,
             follow_redirects=False,
             trust_env=False,
+        )
+        logger.info("model_configured", extra=self.diagnostic_context())
+
+    def diagnostic_context(self):
+        """Only fixed endpoint labels and booleans; never return a configured URL."""
+        s = self.settings
+        base = s.ollama_base_url if s.llm_provider == "ollama" else s.openai_base_url
+        try:
+            target = urlsplit(base)
+            loopback = target.hostname in ("localhost", "127.0.0.1", "::1")
+            if s.llm_provider == "ollama":
+                endpoint = "ollama_loopback" if loopback else "ollama_remote"
+            elif target.hostname == "api.groq.com":
+                endpoint = (
+                    "groq" if target.path.rstrip("/") == "/openai/v1" else "groq_wrong_base_path"
+                )
+            elif target.hostname == "api.openai.com":
+                endpoint = "openai"
+            else:
+                endpoint = "hosted_loopback" if loopback else "hosted_other"
+        except ValueError:
+            endpoint = "invalid_base_url"
+        return {
+            "provider": s.llm_provider,
+            "model_endpoint": endpoint,
+            "key_configured": bool(s.openai_api_key.get_secret_value())
+            if s.llm_provider == "openai"
+            else False,
+        }
+
+    def _log_transport_failure(self, exc):
+        logger.warning(
+            "model_transport_failed",
+            extra={
+                **self.diagnostic_context(),
+                "transport_error": type(exc).__name__,
+                "failure_reason": transport_failure_reason(exc),
+            },
         )
 
     def close(self):
@@ -59,27 +132,46 @@ class HTTPChatModel:
                         )
                 return json.loads(body)
         except httpx.TimeoutException as exc:
+            self._log_transport_failure(exc)
             raise ModelError(
                 "model_timeout",
                 "The model request timed out. Check the model server and try again.",
             ) from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
-            if code in (401, 403):
+            logger.warning(
+                "model_http_failed",
+                extra={
+                    **self.diagnostic_context(),
+                    "provider_status_code": code,
+                },
+            )
+            if code == 401:
                 message = (
                     "The model provider rejected its credentials. Check the backend configuration."
                 )
+            elif code == 403:
+                message = "The model provider denied access. Check key/model permissions and account or network restrictions."
             elif code == 404:
-                message = "Model or endpoint not found. Pull LLM_MODEL in Ollama or check the hosted model configuration."
+                message = (
+                    "Model or endpoint not found. Pull LLM_MODEL in Ollama."
+                    if s.llm_provider == "ollama"
+                    else "Hosted model or endpoint not found. Check LLM_MODEL and OPENAI_BASE_URL."
+                )
             elif code == 429:
                 message = "The model provider is rate limited. Please try again later."
             else:
                 message = "The model server returned an error. Check its availability and model tool-calling support."
             raise ModelError("model_provider_error", message) from exc
         except httpx.RequestError as exc:
+            self._log_transport_failure(exc)
             raise ModelError(
                 "model_unavailable",
-                "Cannot reach the model server. Start Ollama and pull LLM_MODEL, or check the hosted provider configuration. No LLM answer was generated.",
+                (
+                    "Cannot reach Ollama. Start Ollama and pull LLM_MODEL. No LLM answer was generated."
+                    if s.llm_provider == "ollama"
+                    else "Cannot reach the hosted model provider. Check OPENAI_BASE_URL and the backend's outbound DNS/TLS connectivity. See sanitized backend logs for the transport failure. No LLM answer was generated."
+                ),
             ) from exc
         except (ValueError, UnicodeError) as exc:
             raise ModelError(

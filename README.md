@@ -85,7 +85,7 @@ The LLM selects tools and follow-up actions. Graph edges enforce execution limit
 
 ## Cloud deployment
 
-A low-cost deployment profile is prepared for **Streamlit Community Cloud → Render FastAPI → hosted Chat Completions**. It does not require Ollama on your computer. See the [complete deployment guide](docs/deployment.md) and [readiness audit / verification](docs/deployment-audit.md).
+A low-cost deployment profile is prepared for **Streamlit Community Cloud → Render FastAPI → hosted Chat Completions**. It does not require Ollama on your computer. See the [complete deployment guide](docs/deployment.md), [Groq/Render diagnostics](docs/groq-diagnostics.md), and [readiness audit / verification](docs/deployment-audit.md).
 
 ```mermaid
 flowchart LR
@@ -259,6 +259,8 @@ This excerpt is from the **November 17 real Ollama smoke test**, not a scripted 
 Two model invocations and one executed read tool were observed; no ticket changed. Later real-model QA also verified create rejection, approved create with failed-write retry, get/update, and multi-turn recall across a backend restart. See [the case-by-case report](docs/qa-report.md). These are bounded examples, not a model-quality benchmark.
 
 ## Testing and verified results
+
+Provider-diagnostics follow-up: **136 automated tests passed**, including safe transport classification and probe-only checks. These are mocked/local checks, not live Groq success. See [Groq diagnostics and verification](docs/groq-diagnostics.md).
 
 **Cloud preparation verification, November 25, 2026:** **116 tests passed, zero failed**, with **96.75% backend line coverage**. Separate frontend/backend installs and local HTTP process smoke tests passed, including paired reset/reseed, stale approval denial, and frontend recovery. All hosted-model responses in those tests were scripted/mocked; real hosted inference, Docker image execution, and public deployment remain unverified. See the [deployment audit and current verification record](docs/deployment-audit.md). The dated November 18 results below document the earlier local implementation, not the later cloud changes or hosted inference.
 

@@ -38,6 +38,11 @@ def configured_key():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="openai/gpt-oss-20b")
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="Check account/model-list connectivity without chat generation or tools",
+    )
     parser.add_argument("--output", type=Path, default=Path("data/smoke/groq.json"))
     args = parser.parse_args()
     key = configured_key()
@@ -54,6 +59,10 @@ def main():
         "question": QUESTION,
         "result": "failed",
     }
+    if args.probe_only:
+        report["scope"] = (
+            "Groq connectivity/model-list probe only; generation and tool calling remain unverified"
+        )
     try:
         # All application state is disposable and separate from the developer's DBs.
         with tempfile.TemporaryDirectory(prefix="servicedesk-groq-smoke-") as directory:
@@ -85,10 +94,18 @@ def main():
                     {"X-API-Key": shared, "X-Demo-Session": secrets.token_urlsafe(32)}
                 )
                 probe = client.get("/health/model").json()
+                report["model_probe"] = probe
+                print("MODEL-LIST PROBE:", json.dumps(probe))
                 if not probe.get("available"):
                     raise SmokeFailure(
                         "Configured model is not visible/reachable for this Groq account; inspect the private provider configuration."
                     )
+                if args.probe_only:
+                    report["result"] = "probe_passed_generation_unverified"
+                    print(
+                        "PROBE PASSED: model visible; no chat generation or tool execution was tested."
+                    )
+                    return 0
                 conversation = client.post("/conversations")
                 if conversation.status_code != 201:
                     raise SmokeFailure("Could not initialize isolated smoke conversation")

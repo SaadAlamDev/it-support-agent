@@ -8,7 +8,19 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record):
         value = {"timestamp": time.time(), "level": record.levelname, "event": record.getMessage()}
-        for key in ("conversation_id", "tool", "error_type", "duration_ms", "status_code"):
+        for key in (
+            "conversation_id",
+            "tool",
+            "error_type",
+            "duration_ms",
+            "status_code",
+            "provider",
+            "model_endpoint",
+            "key_configured",
+            "transport_error",
+            "failure_reason",
+            "provider_status_code",
+        ):
             if hasattr(record, key):
                 value[key] = getattr(record, key)
         return json.dumps(value)
