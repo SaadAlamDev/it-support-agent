@@ -25,7 +25,7 @@ dependencies = [
 dev = ["pytest>=8,<10", "pytest-cov>=6,<8", "ruff>=0.11,<1"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["support_agent"]
+packages = ["support_agent", "frontend"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -99,6 +99,6 @@ The script writes a new actual trace to `data/smoke/ollama.json`. The checkpoint
 
 ## Practical limits
 
-This is one basic read-tool smoke test, not a comprehensive model-quality evaluation. CPU latency varies with prompt length, host load, context length, and thermal throttling. The previous moving `qwen3:4b` thinking tag took 259.41 seconds for the same test and leaked reasoning; it is not the final configured model. Ticket approval and persistence behavior are covered by the automated tests, while live generation of complex multi-tool/ticket workflows remains unverified. Hosted inference and Docker were not tested in this WSL setup.
+This is one basic read-tool smoke test, not a comprehensive model-quality evaluation. CPU latency varies with prompt length, host load, context length, and thermal throttling. The previous moving `qwen3:4b` thinking tag took 259.41 seconds for the same test and leaked reasoning; it is not the final configured model. At the time of this November 17 setup test, complex live ticket workflows remained unverified. The subsequent [November 18 QA report](qa-report.md) records the real create/update, approval, and persistence cases completed later. Hosted inference and Docker were not tested in this WSL setup.
 
 See [the complete setup and diagnostics](ollama-wsl.md) for installation commands, the missing-runner fix, and recovery of the stalled model download.

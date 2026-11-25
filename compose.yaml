@@ -21,7 +21,7 @@ services:
     depends_on:
       - ollama
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -31,6 +31,8 @@ services:
     command: ["streamlit", "run", "frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
     environment:
       API_BASE_URL: http://backend:8000
+      # Pass only the backend access key; never pass the hosted model key here.
+      SUPPORT_API_KEY: ${SUPPORT_API_KEY:-}
     ports:
       - "127.0.0.1:8501:8501"
     depends_on:

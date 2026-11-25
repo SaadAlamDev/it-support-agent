@@ -1,0 +1,38 @@
+{
+  "verified_on": "2026-11-18",
+  "provider": "ollama",
+  "model": "qwen3:4b-instruct",
+  "question": "Is the simulated corporate VPN healthy right now? Please check the current service status and tell me whether there is a matching incident. Do not create or update any tickets.",
+  "elapsed_seconds": 108.56,
+  "usage": {
+    "model_steps": 2,
+    "tool_calls": 1
+  },
+  "activity": [
+    {
+      "id": 1,
+      "conversation_id": "c6743bdb-27e4-4889-9835-781fb592a978",
+      "call_id": "call_4863cca7915b4970a75cda009d75531a",
+      "tool": "get_system_status",
+      "arguments": {
+        "service": "vpn"
+      },
+      "status": "completed",
+      "result": {
+        "simulated": true,
+        "services": [
+          {
+            "name": "vpn",
+            "status": "degraded",
+            "incident": "SIM-VPN-104",
+            "detail": "Intermittent VPN tunnel drops in the simulated EU gateway. Reconnecting may restore access; engineering is investigating."
+          }
+        ]
+      },
+      "created_at": 1795023567.396175
+    }
+  ],
+  "final_response": "The simulated corporate VPN is currently in a \"degraded\" state. There is an active incident (SIM-VPN-104) related to intermittent VPN tunnel drops in the simulated EU gateway. Reconnecting may restore access, and engineering is investigating the issue.",
+  "error": null,
+  "pending_approval": null
+}

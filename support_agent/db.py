@@ -17,10 +17,15 @@ class NotFoundError(Exception):
     pass
 
 
+class QuotaError(Exception):
+    pass
+
+
 class Repository:
-    def __init__(self, path: Path, approval_ttl: int = 1800):
+    def __init__(self, path: Path, approval_ttl: int = 1800, isolated: bool = False):
         self.path = path
         self.approval_ttl = approval_ttl
+        self.isolated = isolated
         path.parent.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
@@ -68,7 +73,15 @@ class Repository:
                     result TEXT NOT NULL, created_at REAL NOT NULL,
                     UNIQUE(conversation_id, call_id)
                 );
+                CREATE TABLE IF NOT EXISTS usage_counters (
+                    name TEXT PRIMARY KEY, used INTEGER NOT NULL
+                );
             """)
+            # Additive migration: preserve pre-cloud local data and approval receipts.
+            for table in ("conversations", "tickets"):
+                if "owner_id" not in {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT")
+            c.execute("CREATE INDEX IF NOT EXISTS conversations_owner ON conversations(owner_id)")
             c.executemany("INSERT OR IGNORE INTO services VALUES (?, ?, ?, ?)", SERVICES)
             c.executemany(
                 "INSERT OR IGNORE INTO troubleshooting VALUES (?, ?, ?, ?, ?, ?)",
@@ -91,25 +104,69 @@ class Repository:
                 ),
             )
 
-    def create_conversation(self):
+    def create_conversation(self, owner_id=None, max_per_owner=5, max_total=200):
         value = {"id": str(uuid4()), "title": "New investigation", "created_at": time.time()}
         with self.connect() as c:
-            c.execute("INSERT INTO conversations VALUES (:id,:title,:created_at)", value)
+            c.execute("BEGIN IMMEDIATE")
+            if self.isolated:
+                if owner_id is None:
+                    raise NotFoundError("A demo session is required")
+                owned = c.execute(
+                    "SELECT COUNT(*) FROM conversations WHERE owner_id=?", (owner_id,)
+                ).fetchone()[0]
+                total = c.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+                if owned >= max_per_owner or total >= max_total:
+                    raise QuotaError(
+                        "Demo investigation capacity reached. Reuse an existing investigation or return after the operator resets the demo."
+                    )
+            c.execute(
+                "INSERT INTO conversations (id,title,created_at,owner_id) VALUES (?,?,?,?)",
+                (value["id"], value["title"], value["created_at"], owner_id),
+            )
         return value
 
-    def conversation(self, conversation_id):
+    def conversation(self, conversation_id, owner_id=None):
         with self.connect() as c:
             row = c.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,)).fetchone()
-        if row is None:
+        if row is None or (owner_id is not None and row["owner_id"] != owner_id):
             raise NotFoundError("Conversation not found")
-        return dict(row)
+        return {k: row[k] for k in ("id", "title", "created_at")}
 
-    def conversations(self):
+    def conversations(self, owner_id=None):
+        if self.isolated and owner_id is None:
+            raise NotFoundError("A demo session is required")
         with self.connect() as c:
             return [
                 dict(r)
-                for r in c.execute("SELECT * FROM conversations ORDER BY created_at DESC LIMIT 100")
+                for r in c.execute(
+                    "SELECT id,title,created_at FROM conversations WHERE (? IS NULL OR owner_id=?) ORDER BY created_at DESC LIMIT 100",
+                    (owner_id, owner_id),
+                )
             ]
+
+    def consume_quota(self, name, limit):
+        """Reserve before inference; failed requests still consume the budget."""
+        with self.connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            c.execute("INSERT OR IGNORE INTO usage_counters VALUES (?,0)", (name,))
+            used = c.execute("SELECT used FROM usage_counters WHERE name=?", (name,)).fetchone()[0]
+            if used >= limit:
+                raise QuotaError(
+                    "The demo's daily model-call budget is exhausted. Please try another day."
+                )
+            c.execute("UPDATE usage_counters SET used=used+1 WHERE name=?", (name,))
+
+    def _check_ticket_owner(self, c, ticket_id, conversation_id, write=False):
+        if not self.isolated:
+            return
+        owner = c.execute(
+            "SELECT owner_id FROM conversations WHERE id=?", (conversation_id,)
+        ).fetchone()
+        ticket = c.execute("SELECT owner_id FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+        if not owner or not owner[0] or not ticket:
+            raise NotFoundError("Ticket not found")
+        if ticket[0] != owner[0] and not (ticket_id == 1 and ticket[0] is None and not write):
+            raise NotFoundError("Ticket not found")
 
     def set_title(self, conversation_id, text):
         with self.connect() as c:
@@ -149,11 +206,13 @@ class Repository:
         if row is None:
             raise NotFoundError("Ticket not found")
         value = dict(row)
+        value.pop("owner_id", None)
         value["notes"] = json.loads(value["notes"])
         return value
 
-    def ticket(self, ticket_id):
+    def ticket(self, ticket_id, conversation_id=None):
         with self.connect() as c:
+            self._check_ticket_owner(c, ticket_id, conversation_id)
             return {"simulated": True, "ticket": self._ticket(c, ticket_id)}
 
     def activity(self, conversation_id):
@@ -221,8 +280,20 @@ class Repository:
         approval_id = str(uuid5(NAMESPACE_URL, conversation_id + ":" + call["id"]))
         now = time.time()
         with self.connect() as c:
+            existing = c.execute(
+                "SELECT * FROM approvals WHERE id=? AND conversation_id=?",
+                (approval_id, conversation_id),
+            ).fetchone()
+            if existing is not None:
+                proposal = self._approval(existing)
+                if proposal["tool"] != call["name"] or proposal["arguments"] != call["args"]:
+                    raise ConflictError("Tool call id was reused with different arguments")
+                # Node replay must use the immutable ledger even if the referenced
+                # ticket has changed or disappeared. Interrupt ordering stays stable.
+                return proposal
             version = None
             if call["name"] == "update_ticket":
+                self._check_ticket_owner(c, call["args"]["ticket_id"], conversation_id, write=True)
                 version = self._ticket(c, call["args"]["ticket_id"])["version"]
             c.execute(
                 """INSERT OR IGNORE INTO approvals
@@ -280,6 +351,8 @@ class Repository:
             else:
                 try:
                     result = self._apply_ticket_change(c, proposal, now)
+                    result["execution_status"] = "completed"
+                    result["approval"] = {"id": approval_id, "status": "approved"}
                     status = "approved"
                 except (NotFoundError, ConflictError) as exc:
                     status, result = "failed", {"error": "ticket_conflict", "message": str(exc)}
@@ -293,15 +366,19 @@ class Repository:
         # Revalidate stored arguments at the mutation boundary; never accept arguments from the approval POST.
         if proposal["tool"] == "create_ticket":
             args = CreateTicketArgs.model_validate(proposal["arguments"])
+            owner = c.execute(
+                "SELECT owner_id FROM conversations WHERE id=?", (proposal["conversation_id"],)
+            ).fetchone()[0]
             cursor = c.execute(
                 """INSERT INTO tickets
-                (title,description,category,priority,created_at,updated_at) VALUES (?,?,?,?,?,?)""",
-                (args.title, args.description, args.category, args.priority, now, now),
+                (title,description,category,priority,created_at,updated_at,owner_id) VALUES (?,?,?,?,?,?,?)""",
+                (args.title, args.description, args.category, args.priority, now, now, owner),
             )
             ticket_id = cursor.lastrowid
         elif proposal["tool"] == "update_ticket":
             args = UpdateTicketArgs.model_validate(proposal["arguments"])
             ticket_id = args.ticket_id
+            self._check_ticket_owner(c, ticket_id, proposal["conversation_id"], write=True)
             current = self._ticket(c, ticket_id)
             if current["version"] != proposal["ticket_version"]:
                 raise ConflictError("Ticket changed after this proposal. Review a fresh proposal.")

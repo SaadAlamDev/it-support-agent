@@ -100,14 +100,26 @@ class HTTPChatModel:
                         "message": "Ollama is reachable but LLM_MODEL is not installed. Pull that exact model tag.",
                     }
             else:
-                self._request("GET", "/models")
+                value = self._request("GET", "/models")
+                if not isinstance(value, dict) or not isinstance(value.get("data"), list):
+                    raise ValueError("Invalid model list")
+                if not any(
+                    isinstance(m, dict)
+                    and m.get("id") == self.settings.llm_model
+                    and m.get("active", True)
+                    for m in value["data"]
+                ):
+                    return {
+                        "available": False,
+                        "message": "Provider reachable but the configured model is absent or inactive for this account.",
+                    }
             return {
                 "available": True,
                 "message": "Model server reachable. This probe does not test generation or tool calling.",
             }
         except ModelError as exc:
             return {"available": False, "message": exc.message}
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, ValueError):
             return {
                 "available": False,
                 "message": "Model server returned an unexpected model-list format.",
@@ -166,17 +178,35 @@ class HTTPChatModel:
             if self.settings.ollama_think != "auto":
                 payload["think"] = self.settings.ollama_think == "true"
         else:
-            payload["max_completion_tokens"] = 2048
+            payload["max_completion_tokens"] = self.settings.max_completion_tokens
+            if self.settings.hosted_reasoning_effort:
+                payload["reasoning_effort"] = self.settings.hosted_reasoning_effort
+        if (
+            self.settings.protected
+            and len(json.dumps(payload, ensure_ascii=False)) > self.settings.max_context_characters
+        ):
+            raise ModelError(
+                "context_limit", "The demo context limit was reached. Start a new investigation."
+            )
         value = self._request("POST", "/api/chat" if ollama else "/chat/completions", payload)
         try:
-            message = value["message"] if ollama else value["choices"][0]["message"]
-            reason = (
-                value.get("done_reason") if ollama else value["choices"][0].get("finish_reason")
-            )
+            if not isinstance(value, dict):
+                raise ValueError("Response must be an object")
+            if ollama:
+                message, reason = value["message"], value.get("done_reason")
+            else:
+                choices = value["choices"]
+                if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                    raise ValueError("Invalid chat choices")
+                message, reason = choices[0]["message"], choices[0].get("finish_reason")
+            if not isinstance(message, dict):
+                raise ValueError("Message must be an object")
             if reason in ("length", "content_filter") or (ollama and value.get("done") is False):
                 raise ValueError("Incomplete generation")
-            content = message.get("content") or ""
-            calls = message.get("tool_calls") or []
+            content = message.get("content")
+            content = "" if content is None else content
+            calls = message.get("tool_calls")
+            calls = [] if calls is None else calls
             # Some Ollama templates open <think> in the prompt and, when asked to
             # disable thinking, leak reasoning into content rather than a separate
             # thinking field. Keep only the actual final answer, never that reasoning.

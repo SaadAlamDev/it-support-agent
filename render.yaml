@@ -1,0 +1,54 @@
+# Import only after reviewing docs/deployment.md. Creating the service publishes it.
+services:
+  - type: web
+    name: it-support-agent-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_MODE
+        value: cloud
+      - key: STORAGE_MODE
+        value: ephemeral
+      - key: RESET_DEMO_ON_START
+        value: "true"
+      - key: DATABASE_PATH
+        value: /app/data/support.db
+      - key: CHECKPOINT_PATH
+        value: /app/data/checkpoints.db
+      - key: LLM_PROVIDER
+        value: openai
+      - key: LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPPORT_API_KEY
+        sync: false
+      - key: MODEL_TIMEOUT_SECONDS
+        value: "30"
+      - key: MAX_COMPLETION_TOKENS
+        value: "1536"
+      - key: HOSTED_REASONING_EFFORT
+        value: low
+      - key: MAX_MODEL_STEPS
+        value: "4"
+      - key: MAX_TOOL_CALLS
+        value: "6"
+      - key: MAX_HISTORY_MESSAGES
+        value: "40"
+      - key: MAX_CONTEXT_CHARACTERS
+        value: "16000"
+      - key: MAX_MODEL_CALLS_PER_DAY
+        value: "100"
+      - key: MAX_CONVERSATIONS_PER_SESSION
+        value: "5"
+      - key: MAX_CONVERSATIONS_TOTAL
+        value: "100"
+      - key: DEMO_ACTIONS_PER_MINUTE
+        value: "6"
+      - key: DEMO_REQUESTS_PER_MINUTE
+        value: "180"

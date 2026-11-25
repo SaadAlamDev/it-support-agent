@@ -1,0 +1,14 @@
+# Render backend only: no Streamlit, model binaries, or credentials in the image.
+FROM python:3.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN useradd --create-home --uid 10001 appuser
+COPY requirements-backend.txt ./
+RUN pip install --no-cache-dir -r requirements-backend.txt
+COPY support_agent ./support_agent
+# Operator-only smoke tools; credentials are injected at runtime, never built in.
+COPY scripts/smoke_cloud.py scripts/smoke_groq.py ./scripts/
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
+USER appuser
+EXPOSE 8000
+CMD ["python", "-m", "support_agent.serve"]

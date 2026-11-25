@@ -1,84 +1,37 @@
 """Streamlit is an API client only. All orchestration and writes live in FastAPI."""
 
-import os
+import secrets
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
+from pathlib import Path
 
-import httpx
+# Community Cloud installs only frontend/requirements.txt. Make the repository's
+# frontend package importable when Streamlit launches this file directly.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import streamlit as st
-from dotenv import load_dotenv
 
-load_dotenv()
-API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+from frontend.api_client import APIError, request
+from frontend.components import render_activity
+from frontend.theme import apply_theme
+
 st.set_page_config(
     page_title="ServiceDesk · IT Support",
     page_icon="🛠️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-st.markdown(
-    """
-<style>
-html, body, [class*="css"], .stApp {font-family:Inter,'Segoe UI',sans-serif;}
-.stApp {background:#0b1018;}
-[data-testid="stSidebar"] {background:#111925; border-right:1px solid #233044;}
-.block-container {max-width:1500px;padding-top:2.2rem;}
-.brand {color:#79e0c3;letter-spacing:.13em;font-size:12px;font-weight:700;margin-bottom:14px;}
-.hero {font-size:40px;font-weight:700;letter-spacing:-1.5px;line-height:1.1;margin:0 0 12px;}
-.subtitle {color:#9eafc4;font-size:16px;line-height:1.6;max-width:650px;}
-.pill {display:inline-block;border:1px solid #304736;color:#a7e0bb;background:#15251e;border-radius:20px;padding:5px 12px;font-size:12px;margin:8px 0 16px;}
-[data-testid="stChatMessage"] {background:#121c29;border:1px solid #233044;border-radius:14px;}
-[data-testid="stMetric"] {background:#121c29;padding:14px;border:1px solid #233044;border-radius:12px;}
-.stButton>button {border-radius:9px;}
-hr {border-color:#233044;}
-</style>
-""",
-    unsafe_allow_html=True,
-)
+apply_theme()
 
-
-class APIError(Exception):
-    pass
-
-
-def api(method, path, body=None, timeout=10):
-    try:
-        response = httpx.request(
-            method, API_BASE + path, json=body, timeout=timeout, trust_env=False
-        )
-        if response.is_error:
-            try:
-                detail = response.json().get("detail", "Request failed")
-            except ValueError:
-                detail = "The backend returned an unexpected response."
-            if not isinstance(detail, str):
-                detail = "The request was invalid. Check the entered values."
-            raise APIError(f"{detail} (HTTP {response.status_code})")
-        return response.json()
-    except httpx.TimeoutException as exc:
-        raise APIError(
-            "The backend request timed out. Refresh to inspect the saved result before retrying an approval."
-        ) from exc
-    except httpx.RequestError as exc:
-        raise APIError("Cannot reach the backend. Start FastAPI and check API_BASE_URL.") from exc
-
-
-def render_activity(records, expanded=False):
-    if not records:
-        st.caption("Tool calls will appear here as the investigation progresses.")
-    for record in records:
-        symbol = {"completed": "✓", "error": "!", "awaiting_approval": "◷"}.get(
-            record["status"], "•"
-        )
-        label = record["tool"].replace("_", " ")
-        with st.expander(
-            f"{symbol} {label} · {record['status'].replace('_', ' ')}", expanded=expanded
-        ):
-            st.caption("VALIDATED INPUT" if record["status"] != "error" else "INPUT")
-            st.json(record["arguments"], expanded=True)
-            st.caption("TOOL RESULT · UNTRUSTED REFERENCE DATA")
-            st.json(record["result"], expanded=True)
+# Capture the opaque visitor token before launching a worker; Streamlit session
+# state must never be accessed from ThreadPoolExecutor threads.
+if "demo_session" not in st.session_state:
+    st.session_state.demo_session = secrets.token_urlsafe(32)
+api = partial(request, session_token=st.session_state.demo_session)
 
 
 def run_action(path, body=None):
@@ -131,12 +84,22 @@ with st.sidebar:
         except APIError as exc:
             st.error(str(exc))
     try:
-        health = api("GET", "/health")
+        with st.spinner("Connecting to the support service…"):
+            health = api("GET", "/health", timeout=60)
+        instance = health.get("demo_instance_id")
+        previous_instance = st.session_state.get("demo_instance_id")
+        if instance and previous_instance and instance != previous_instance:
+            st.session_state.pop("conversation_id", None)
+            st.session_state.pop("action_error", None)
+            st.session_state.demo_reset_notice = True
+        st.session_state.demo_instance_id = instance
         st.session_state.request_timeout = health["request_timeout_seconds"]
         conversations = api("GET", "/conversations")
     except APIError as exc:
         st.error(str(exc))
-        st.code("uv run uvicorn support_agent.api:app --reload")
+        st.caption("A free cloud backend can take a minute to wake up.")
+        if st.button("Retry connection"):
+            st.rerun()
         st.stop()
     if conversations:
         ids = [c["id"] for c in conversations]
@@ -152,7 +115,7 @@ with st.sidebar:
     st.divider()
     st.caption("MODEL CONNECTION")
     st.write(f"**{health['model']}**")
-    st.caption(f"Provider: {health['provider']} · real model inference")
+    st.caption(f"Provider: {health['provider']} · configured model")
     if st.button("Check model server", use_container_width=True):
         with st.spinner("Checking connection…"):
             try:
@@ -168,16 +131,30 @@ with st.sidebar:
     st.caption(
         f"Limits per turn: {health['max_model_steps']} model calls · {health['max_tool_calls']} tools"
     )
+    if health.get("session_isolation"):
+        st.caption(
+            "Private demo sandbox for this browser session. A fresh browser session starts a new sandbox. Sample ticket 1 is read-only."
+        )
+    if health.get("storage_mode") == "ephemeral":
+        st.warning(
+            "Disposable demo: conversations and tickets may reset when the backend sleeps, restarts, or redeploys."
+        )
+    elif health.get("storage_mode") == "persistent":
+        st.caption("Storage configured for a persistent mount. Use synthetic data only.")
 
 st.markdown(
     '<div class="brand">IT OPERATIONS / ASSISTED INVESTIGATION</div>', unsafe_allow_html=True
 )
-st.markdown('<div class="hero">A clearer path to resolution.</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero">IT support, with evidence.</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Describe the problem. ServiceDesk checks evidence, guides troubleshooting, and prepares support tickets with you in control.</div>',
+    '<div class="subtitle">Investigate issues, follow the tool trace, and review every ticket change before it happens.</div>',
     unsafe_allow_html=True,
 )
 st.markdown('<div class="pill">● SIMULATED ENTERPRISE SYSTEMS</div>', unsafe_allow_html=True)
+if st.session_state.pop("demo_reset_notice", False):
+    st.info(
+        "The disposable demo restarted. A fresh investigation is ready; previous tickets and proposals are no longer available."
+    )
 
 if "conversation_id" not in st.session_state:
     try:
@@ -190,19 +167,24 @@ try:
     view = api("GET", f"/conversations/{conversation_id}")
 except APIError as exc:
     st.error(str(exc))
+    if health.get("storage_mode") == "ephemeral":
+        st.info(
+            "The demo backend may have reset. Use New investigation in the sidebar to start again."
+        )
     st.stop()
 
 chat, activity = st.columns([1.65, 1], gap="large")
 with activity:
     st.subheader("Investigation activity")
     a, b = st.columns(2)
-    a.metric("Tool calls", len(view["activity"]))
+    a.metric("Tool attempts", len(view["activity"]))
     b.metric("Model steps · this turn", view["usage"]["model_steps"])
     st.caption("Every input and result is recorded by the backend.")
     render_activity(view["activity"])
 
 with chat:
     st.subheader("Support conversation")
+    st.caption("Saved investigation · " + conversation_id[:8])
     if st.session_state.get("action_error"):
         st.error(st.session_state.action_error)
         if st.button("Refresh saved state"):

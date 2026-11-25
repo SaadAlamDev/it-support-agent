@@ -26,11 +26,11 @@ TOOL_MODELS = {
     "get_ticket": (TicketArgs, "Retrieve a SIMULATED support ticket by numeric ID."),
     "create_ticket": (
         CreateTicketArgs,
-        "Propose a new SIMULATED ticket. This only requests human approval; it cannot write a ticket by itself.",
+        "Register a new SIMULATED ticket proposal and display human approval controls. Call BEFORE approval; the backend pauses BEFORE writing. Do not substitute a chat-only proposal. After approval, the result explicitly reports the committed ticket.",
     ),
     "update_ticket": (
         UpdateTicketArgs,
-        "Propose a SIMULATED ticket update. Requires separate explicit human approval of the exact proposed fields.",
+        "Register a SIMULATED ticket update proposal and display human approval controls. Call BEFORE approval, after retrieving the ticket; the backend pauses BEFORE writing. A chat-only proposal cannot display approval controls. After approval, the result explicitly reports the committed ticket.",
     ),
 }
 
@@ -66,7 +66,7 @@ class ToolService:
                 "message": "Arguments do not match the tool's JSON schema. Correct the types, allowed values, and required fields.",
             }
 
-    def read(self, name, args):
+    def read(self, name, args, conversation_id=None):
         """This dispatcher has no mutation branch and cannot grant approvals."""
         try:
             if name == "get_system_status":
@@ -74,7 +74,7 @@ class ToolService:
             if name == "lookup_troubleshooting_steps":
                 return self.repository.lookup(**args)
             if name == "get_ticket":
-                return self.repository.ticket(**args)
+                return self.repository.ticket(**args, conversation_id=conversation_id)
             return {
                 "error": "approval_required",
                 "message": "Ticket changes require the dedicated approval endpoint.",
